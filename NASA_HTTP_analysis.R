@@ -15,101 +15,160 @@ library(gdata)
 library(iptools)
 library(rjson)
 
-raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=2000)
 
-log <- subset(raw_log, select=c('V1', 'V4', 'V5', 'V6', 'V7', 'V8'))
+main <- function() {
+  n <- getrownum()
+
+  raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=n)
   
-log$V6 <- data.frame(do.call('rbind', strsplit(as.character(log$V6), " ", fixed=TRUE)))
-log$V5 <- gsub(']', '', log$V5)
-log$V4 <- gsub('\\[', '', log$V4)
+  clean_log <- clean(raw_log)
   
-names(log) <- c('host', 'timestamp', 'timezone', 'request', 'reply', 'reply_size')
-names(log$request) <- c('method', 'path', 'status')
+  clean_log$ip_address <- findips(clean_log$host, n)
   
-ips <- character()
-
-# list of all ips and their hosts that were already found (memoization)
-found.ips <- list()
-
-print('getting hosts')
+  coords <- freegeoip(clean_log$ip_address, n)
+  
+  return(coords)
+}
 
 
-# Creates Progress bar for monitoring retrieval of ip addresses from hosts
-host.pb <- txtProgressBar(1, 2000, style=3)
-count <- 0
+getrownum <- function() {
+  n <- readline(prompt="Number of rows to compute: ")
+  n <- as.integer(n)
+  if(n > 20000 || n < 0 || is.na(n)) {
+    print("Please enter an integer in the range of 0 to 20,000")
+    n <- getrownum()
+  }
+  return(n)
+}
+
+clean <- function(rawlog) {
+  
+  # remove unnecessary columns of hyphens (V2 & V3) and rename columns
+  log <- subset(rawlog, select=c('V1', 'V4', 'V5', 'V6', 'V7', 'V8'))
+  names(log) <- c('host', 'timestamp', 'timezone', 'request', 'reply', 'reply_size')
+  
+  
+  # split the request string into a sub data frame  
+  log$request <- data.frame(do.call('rbind', strsplit(as.character(log$request), " ", fixed=TRUE)))
+  names(log$request) <- c('method', 'path', 'status')
+  
+  
+  # remove trailing and leading brackets in colums
+  log$timezone <- gsub(']', '', log$timezone)
+  log$timestamp <- gsub('\\[', '', log$timestamp)
+  
+  return(log)
+}
 
 
-# Finds the ip addresses that correspond to the host
-# if two addresses are founds, the first is taken,
-# if none are found a NULL value is added
-for(host in as.character(log$host)) {
-  if(host %in% names(found.ips)) {
-    response <- found.ips[host]
-    
-    ips <- c(ips, response)
-  } else {
-    response <- hostname_to_ip(host)
-    
-    if(response == "Not resolved") {
-      host <- gsub('^[^.]*\\.',  '', host)
+findips <- function(hosts, n) {
+  
+  # vector for storing all found ips  
+  ips <- character()
+  
+  # list of all ips and their hosts that were already found (memoization)
+  found.ips <- list()
+  
+  print('Retrieving IPs')
+  
+  
+  # Creates Progress bar for monitoring retrieval of ip addresses from hosts
+  pb <- txtProgressBar(1, n, style=3)
+  count <- 0
+  
+  
+  # Finds the ip addresses that correspond to the host
+  # if two addresses are founds, the first is taken,
+  # if none are found a NULL value is added
+  for(host in as.character(hosts)) {
+    if(host %in% names(found.ips)) {
+      response <- found.ips[host]
+      
+      ips <- c(ips, response)
+    } else {
       response <- hostname_to_ip(host)
       
       if(response == "Not resolved") {
-        response = NA
-      } else if (length(response[[1]]) > 1) {
+        host <- gsub('^[^.]*\\.',  '', host)
+        response <- hostname_to_ip(host)
+        
+        if(response == "Not resolved") {
+          response = NA
+        } else if (length(response[[1]]) > 1) {
+          response = response[[1]][1]
+        }
+      }
+      
+      if(length(response[[1]]) > 1) {
         response = response[[1]][1]
       }
+      
+      ips <- c(ips, response)
+      found.ips[host] <- response
     }
     
-    if(length(response[[1]]) > 1) {
-      response = response[[1]][1]
-    }
-    
-    ips <- c(ips, response)
-    found.ips[host] <- response
+    count <- count + 1
+    setTxtProgressBar(pb, count)
   }
-  
-  count <- count + 1
-  setTxtProgressBar(host.pb, count)
+  return(ips)
 }
-  
-log$ip_address <- ips
 
-freegeoip <- function(ip, format = ifelse(length(ip)==1,'list','dataframe'))
+freegeoip <- function(ips, n)
 {
-  if (1 == length(ip))
-  {
-    if(is.na(ip)) {
-      return(NULL)
+  print("Retrieving Geo Coordinates")
+  pb <- txtProgressBar(1, n, style=3)
+  print("Progress Bar Created")
+  count <- 0
+  print("after count")
+  lats <- character()
+  lons <- character()
+  
+  
+  for (ip in ips) {
+    if (is.na(ip)) {
+      lats <- c(lats, NULL)
+      lons <- c(lons, NULL)
     } else {
-      # a single IP address
       require(rjson)
       url <- paste(c("http://freegeoip.net/json/", ip), collapse='')
       ret <- fromJSON(readLines(url, warn=FALSE))
-      if (format == 'dataframe')
-        ret <- data.frame(t(unlist(ret)))
-      return(ret) 
+      ret <- data.frame(t(unlist(ret)))
+      print(as.vector(ret$latitude[[1]]))
+      lats <- append(lats, as.vector(ret$latitude[[1]]))
+      lons <- c(lons, as.vector(ret$longitude[[1]]))
     }
-  } else {
-    ret <- data.frame()
-    for (i in 1:length(ip))
-    {
-      r <- freegeoip(ip[i], format="dataframe")
-      ret <- rbind(ret, r)
-    }
-    return(ret)
+    
+    count <- count + 1
+    setTxtProgressBar(pb, count)
   }
+  print("after for")
+  print(lats)
+  print(lons)
+  
+  coords <- data.frame(c(1:length(lats)))
+  coords$latitude <- lats
+  coords$longitude <- lons
+    
+  return(coords)
 }   
 
-create.map <- function(lon, lat) {
+getloc <- function() {
+  loc <- readline(prompt="Enter Location (i.e. United States, China, Europe): ")
+  loc <- as.character(loc)
+  if(is.na(loc)) {
+    print("Please Enter A Valid Location")
+    loc <- getloc()
+  }
+  return(loc)
+}
 
-  df <- data.frame(c(1:length(lat)))
-  df$lat <- lat
-  df$lon <- lon
-    
-  thamap <- get_map(location=c(lon=mean(as.numeric(as.vector(df$lon))), lat=mean(as.numeric(as.vector(df$lat)))), zoom=3, maptype="satellite", scale=1)
+create.map <- function(df) {
   
-  ggmap(thamap) + geom_point(data=df, aes(x=as.numeric(as.vector(lon)), y=as.numeric(as.vector(lat)), fill="red", alpha=0.8), size=3, shape=21) + guides(fill=FALSE, alpha=FALSE, size=FALSE)
+  loc <- getloc()
+
+  thamap <- get_map(location=loc, zoom=3)
+  
+  ggmap(thamap) + geom_point(data=df, aes(x=as.numeric(as.vector(longitude)), y=as.numeric(as.vector(latitude)), fill="red", alpha=0.8), size=3, shape=21) + guides(fill=FALSE, alpha=FALSE, size=FALSE)
 }
 
 create.heat_map <- function() {
@@ -117,3 +176,5 @@ create.heat_map <- function() {
 }
 
 # log$ip_address <- hostname_to_ip(as.character(log$host))
+
+coords <- main()
