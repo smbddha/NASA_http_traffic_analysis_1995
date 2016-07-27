@@ -15,7 +15,7 @@ library(gdata)
 library(iptools)
 library(rjson)
 
-raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=100)
+raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=1000)
 
 log <- subset(raw_log, select=c('V1', 'V4', 'V5', 'V6', 'V7', 'V8'))
   
@@ -27,7 +27,18 @@ names(log) <- c('host', 'timestamp', 'timezone', 'request', 'reply', 'reply_size
 names(log$request) <- c('method', 'path', 'status')
   
 ips <- character()
- 
+
+print('getting hosts')
+
+
+# Creates Progress bar for monitoring retrieval of ip addresses from hosts
+host.pb <- txtProgressBar(1, 500, style=3)
+count <- 0
+
+
+# Finds the ip addresses that correspond to the host
+# if two addresses are founds, the first is taken,
+# if none are found a NULL value is added
 for(host in as.character(log$host)) {
   response <- hostname_to_ip(host)
     
@@ -42,6 +53,12 @@ for(host in as.character(log$host)) {
     }
   }
   
+  if(length(response[[1]]) > 1) {
+    response = response[[1]][1]
+  }
+  
+  setTxtProgressBar(host.pb, count)
+  count <- count + 1
   ips <- c(ips, response)
 }
   
@@ -79,7 +96,7 @@ create.map <- function(lon, lat) {
   df$lat <- lat
   df$lon <- lon
     
-  thamap <- get_map(location=c(lon=mean(as.numeric(as.vector(df$lon))), lat=mean(as.numeric(as.vector(df$lat)))), zoom=3, maptype="satellite", scale=2)
+  thamap <- get_map(location=c(lon=mean(as.numeric(as.vector(df$lon))), lat=mean(as.numeric(as.vector(df$lat)))), zoom=3, maptype="satellite", scale=1)
   
   ggmap(thamap) + geom_point(data=df, aes(x=as.numeric(as.vector(lon)), y=as.numeric(as.vector(lat)), fill="red", alpha=0.8), size=3, shape=21) + guides(fill=FALSE, alpha=FALSE, size=FALSE)
 }
