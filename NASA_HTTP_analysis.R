@@ -115,11 +115,11 @@ findips <- function(hosts, n) {
 
 freegeoip <- function(ips, n)
 {
-  print("Retrieving Geo Coordinates")
+  print("\nRetrieving Geo Coordinates")
   pb <- txtProgressBar(1, n, style=3)
-  print("Progress Bar Created")
+
   count <- 0
-  print("after count")
+
   lats <- character()
   lons <- character()
   
@@ -133,7 +133,6 @@ freegeoip <- function(ips, n)
       url <- paste(c("http://freegeoip.net/json/", ip), collapse='')
       ret <- fromJSON(readLines(url, warn=FALSE))
       ret <- data.frame(t(unlist(ret)))
-      print(as.vector(ret$latitude[[1]]))
       lats <- append(lats, as.vector(ret$latitude[[1]]))
       lons <- c(lons, as.vector(ret$longitude[[1]]))
     }
@@ -141,9 +140,6 @@ freegeoip <- function(ips, n)
     count <- count + 1
     setTxtProgressBar(pb, count)
   }
-  print("after for")
-  print(lats)
-  print(lons)
   
   coords <- data.frame(c(1:length(lats)))
   coords$latitude <- lats
