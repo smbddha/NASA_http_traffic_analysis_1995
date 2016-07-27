@@ -15,7 +15,7 @@ library(gdata)
 library(iptools)
 library(rjson)
 
-raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=1000)
+raw_log <- read.table('../Projects/data/NASA_access_log_Jul95', fill=TRUE, nrows=2000)
 
 log <- subset(raw_log, select=c('V1', 'V4', 'V5', 'V6', 'V7', 'V8'))
   
@@ -28,11 +28,14 @@ names(log$request) <- c('method', 'path', 'status')
   
 ips <- character()
 
+# list of all ips and their hosts that were already found (memoization)
+found.ips <- list()
+
 print('getting hosts')
 
 
 # Creates Progress bar for monitoring retrieval of ip addresses from hosts
-host.pb <- txtProgressBar(1, 500, style=3)
+host.pb <- txtProgressBar(1, 2000, style=3)
 count <- 0
 
 
@@ -40,26 +43,34 @@ count <- 0
 # if two addresses are founds, the first is taken,
 # if none are found a NULL value is added
 for(host in as.character(log$host)) {
-  response <- hostname_to_ip(host)
+  if(host %in% names(found.ips)) {
+    response <- found.ips[host]
     
-  if(response == "Not resolved") {
-    host <- gsub('^[^.]*\\.',  '', host)
+    ips <- c(ips, response)
+  } else {
     response <- hostname_to_ip(host)
     
     if(response == "Not resolved") {
-      response = NA
-    } else if (length(response[[1]]) > 1) {
+      host <- gsub('^[^.]*\\.',  '', host)
+      response <- hostname_to_ip(host)
+      
+      if(response == "Not resolved") {
+        response = NA
+      } else if (length(response[[1]]) > 1) {
+        response = response[[1]][1]
+      }
+    }
+    
+    if(length(response[[1]]) > 1) {
       response = response[[1]][1]
     }
+    
+    ips <- c(ips, response)
+    found.ips[host] <- response
   }
   
-  if(length(response[[1]]) > 1) {
-    response = response[[1]][1]
-  }
-  
-  setTxtProgressBar(host.pb, count)
   count <- count + 1
-  ips <- c(ips, response)
+  setTxtProgressBar(host.pb, count)
 }
   
 log$ip_address <- ips
@@ -99,6 +110,10 @@ create.map <- function(lon, lat) {
   thamap <- get_map(location=c(lon=mean(as.numeric(as.vector(df$lon))), lat=mean(as.numeric(as.vector(df$lat)))), zoom=3, maptype="satellite", scale=1)
   
   ggmap(thamap) + geom_point(data=df, aes(x=as.numeric(as.vector(lon)), y=as.numeric(as.vector(lat)), fill="red", alpha=0.8), size=3, shape=21) + guides(fill=FALSE, alpha=FALSE, size=FALSE)
+}
+
+create.heat_map <- function() {
+  ggmap(map_g, extent="device") + geom_density2d(data = x, aes(x=as.numeric(as.vector(longitude)), y=as.numeric(as.vector(latitude))), size=0.3) + stat_density2d(data=x, aes(x=as.numeric(as.vector(longitude)), y=as.numeric(as.vector(latitude)), fill=..level.., alpha=..level..), size=0.01, bins=16, geom="polygon") + scale_fill_gradient(low="green", high="red") + scale_alpha(range=c(0, 0.3), guide=FALSE)
 }
 
 # log$ip_address <- hostname_to_ip(as.character(log$host))
